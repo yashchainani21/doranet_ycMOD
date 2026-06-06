@@ -1113,10 +1113,12 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
         batch_size: typing.Optional[int] = None,
         save_unreactive: bool = True,
     ) -> None:
-        if self._num_procs > 1:
-            raise NotImplementedError(
-                "Parallel expansion is not yet implemented (Phase 1); "
-                "create the engine with np=1 for now"
+        from doranet import _parallel  # noqa: PLC0415
+
+        if self._num_procs > 1 and self._engine is None:
+            raise ValueError(
+                "Parallel expansion requires the strategy to be "
+                "constructed with an engine."
             )
         rxn_analysis_task: typing.Optional[metadata.RxnAnalysisStep] = None
         if reaction_plan is not None:
@@ -1157,6 +1159,18 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
         updated_ops_set: set[interfaces.OpIndex] = set()
         recipe_heap: RecipeHeap = RecipeHeap(maxsize=heap_size)
         recipes_tested: set[interfaces.Recipe] = set()
+
+        pool = None
+        if self._num_procs > 1:
+            assert self._engine is not None
+            pool = _parallel.make_pool(
+                self._engine,
+                network,
+                rxn_analysis_task,
+                save_unreactive,
+                reaction_keyset,
+                self._num_procs,
+            )
 
         while (max_recipes is None or max_recipes > 0) and (
             any(
@@ -1232,17 +1246,29 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                     ]
                 max_recipes = max_recipes - len(recipes_to_be_expanded)
 
-            reaction_jobs = tuple(
-                assemble_reaction_job(
-                    reciperank.recipe, network, reaction_keyset
+            if pool is not None:
+                assert self._engine is not None
+                rxn_stream: collections.abc.Iterable[
+                    tuple[interfaces.ReactionExplicit, bool]
+                ] = _parallel.run_reaction_batch(
+                    pool,
+                    recipes_to_be_expanded,
+                    network,
+                    self._engine,
+                    reaction_keyset,
+                    self._num_procs,
                 )
-                for reciperank in recipes_to_be_expanded
-            )
+            else:
+                reaction_jobs = tuple(
+                    assemble_reaction_job(
+                        reciperank.recipe, network, reaction_keyset
+                    )
+                    for reciperank in recipes_to_be_expanded
+                )
+                rxn_stream = execute_reactions(reaction_jobs, rxn_analysis_task)
 
             # execute reactions
-            for rxn, pass_filter in execute_reactions(
-                reaction_jobs, rxn_analysis_task
-            ):
+            for rxn, pass_filter in rxn_stream:
                 if not save_unreactive and not pass_filter:
                     continue
                 # add product mols to network
@@ -1354,10 +1380,14 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                         rval
                         is interfaces.GlobalHookReturnValue.STOP_SHORTCIRCUIT
                     ):
+                        if pool is not None:
+                            pool.terminate()
                         return
                     if rval is interfaces.GlobalHookReturnValue.STOP:
                         end_on_completion = True
                 if end_on_completion:
+                    if pool is not None:
+                        pool.terminate()
                     return
 
             continue
