@@ -66,25 +66,28 @@ _JobPayload = tuple[int, tuple[_ReactantPayload, ...]]
 
 def _init_worker(
     speed: int,
-    op_objs: collections.abc.Sequence[interfaces.OpDatBase],
+    op_payloads: collections.abc.Sequence[tuple[str, bool, bool]],
     op_meta: collections.abc.Sequence[_Meta],
     reaction_plan: typing.Any,
     save_unreactive: bool,
 ) -> None:
-    """Store the per-worker engine + operator set in a module global.
+    """Rebuild the per-worker engine + operator set; store in a module global.
 
-    Operators ship as already-built objects (multiprocessing pickles them with
-    regular pickle, not DORAnet's safe unpickler); a worker-local engine
-    rebuilds reactant molecules from SMILES.  Shipping objects is simple and
-    exact; a lighter SMARTS-based payload is a possible later optimization.
+    Operators ship as lightweight ``(SMARTS, kekulize, drop_errors)`` payloads
+    (~KB each, vs ~MB for a pickled reaction object) and are rebuilt with a
+    worker-local engine, which also rebuilds reactant molecules from SMILES.
     """
     import doranet  # noqa: PLC0415
 
     engine = doranet.create_engine(speed=speed, np=1)
+    ops = tuple(
+        engine.op.rdkit(smarts, kekulize, drop_errors)
+        for smarts, kekulize, drop_errors in op_payloads
+    )
     global _WORKER  # noqa: PLW0603
     _WORKER = _WorkerState(
         engine=engine,
-        ops=tuple(op_objs),
+        ops=ops,
         op_meta=tuple(op_meta),
         reaction_plan=reaction_plan,
         save_unreactive=save_unreactive,
@@ -173,7 +176,17 @@ def make_pool(
 ) -> "multiprocessing.pool.Pool":
     """Create a spawn Pool with operators + reaction_plan loaded per worker."""
     _validate_picklable(reaction_plan)
-    op_objs = list(network.ops)
+    # Ship operators as lightweight (SMARTS, kekulize, drop_errors) payloads
+    # rather than pickled reaction objects; workers rebuild them.  op.uid is the
+    # operator's SMARTS string.
+    op_payloads = [
+        (
+            str(op.uid),
+            getattr(op, "_kekulize", False),
+            getattr(op, "_drop_errors", False),
+        )
+        for op in network.ops
+    ]
     op_keys = reaction_keyset.operator_keys
     op_meta: list[_Meta] = [
         network.ops.meta(interfaces.OpIndex(i), op_keys) if op_keys else None
@@ -185,7 +198,7 @@ def make_pool(
         initializer=_init_worker,
         initargs=(
             engine.speed,
-            op_objs,
+            op_payloads,
             op_meta,
             reaction_plan,
             save_unreactive,
