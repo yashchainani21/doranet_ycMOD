@@ -7,6 +7,7 @@ identical molecule and reaction sets keyed by uid, and identical metadata.
 
 import doranet as dn
 from doranet import interfaces, metacalc
+from doranet.modules.enzymatic import similarity_sampling as ss
 
 
 def _alkyne_network(engine):
@@ -74,6 +75,35 @@ def test_parallel_reproducible_across_core_counts():
     four = _expand_alkyne(4)
     assert _mol_uids(two) == _mol_uids(four)
     assert _rxn_uids(two) == _rxn_uids(four)
+
+
+def test_sampling_reproducible_serial_vs_parallel():
+    # Similarity sampling draws in canonical (uid) order, so a seeded run
+    # selects the same molecules regardless of np / index-assignment order.
+    key = ss.DEFAULT_META_KEY
+
+    def run(np_count):
+        engine = dn.create_engine(np=np_count)
+        net = engine.new_network()
+        for smi in ("C#C", "CC#C", "CCC#C", "CCCC#C"):
+            net.add_mol(engine.mol.rdkit(smi), meta={key: True})
+        net.add_op(engine.op.rdkit("[C:1]#[C:2]>>[*:1]=[*:2]"))
+        net.add_op(engine.op.rdkit("[C:1]=[C:2]>>[*:1]-[*:2]"))
+        ini = len(net.mols)
+        sampler = ss.ProductSimilaritySampler(
+            target_smiles=["CCCC"], sample_size=2, seed=0, high_water=ini
+        )
+        mol_filter = engine.filter.mol.meta_func(key, lambda v: v is True)
+        engine.strat.cartesian(net).expand(
+            num_iter=2, mol_filter=mol_filter, global_hooks=[sampler]
+        )
+        return {
+            net.mols[interfaces.MolIndex(i)].uid
+            for i in range(len(net.mols))
+            if net.mols.meta(interfaces.MolIndex(i), (key,)).get(key)
+        }
+
+    assert run(1) == run(2)
 
 
 def test_parallel_metadata_matches_serial():

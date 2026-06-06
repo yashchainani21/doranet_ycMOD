@@ -200,8 +200,11 @@ class ProductSimilaritySampler(interfaces.GlobalUpdateHook):
     ) -> interfaces.GlobalHookReturnValue:
         n_mols = len(network.mols)
         weight_fn = self.weight if self.weight is not None else _default_weight
-        candidates: list[int] = []
-        weights: list[float] = []
+        # Collect (uid, index, weight) for each surviving new product, then
+        # draw in canonical uid order so the seeded sample is reproducible
+        # regardless of how molecule indices were assigned (serial vs parallel,
+        # and across core counts).
+        scored: list[tuple[str, int, float]] = []
         for i in range(self.high_water, n_mols):
             if not network.reactivity[i]:
                 continue
@@ -219,14 +222,16 @@ class ProductSimilaritySampler(interfaces.GlobalUpdateHook):
             )
             if score < self.min_similarity:
                 continue
-            candidates.append(i)
-            weights.append(weight_fn(score))
-        if candidates:
-            if len(candidates) <= self.sample_size:
-                chosen: collections.abc.Iterable[int] = candidates
+            scored.append((mol.smiles, i, weight_fn(score)))
+        if scored:
+            scored.sort(key=lambda t: t[0])
+            indices = [i for _, i, _ in scored]
+            weights = [w for _, _, w in scored]
+            if len(indices) <= self.sample_size:
+                chosen: collections.abc.Iterable[int] = indices
             else:
                 chosen = weighted_sample_without_replacement(
-                    candidates, weights, self.sample_size, self._rng
+                    indices, weights, self.sample_size, self._rng
                 )
             for i in chosen:
                 network.mols.set_meta(
