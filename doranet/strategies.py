@@ -1268,15 +1268,25 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                 rxn_stream = execute_reactions(reaction_jobs, rxn_analysis_task)
 
             # execute reactions
+            products_to_activate: dict[
+                interfaces.Identifier, interfaces.MolDatBase
+            ] = {}
             for rxn, pass_filter in rxn_stream:
                 if not save_unreactive and not pass_filter:
                     continue
-                # add product mols to network
+                # add product mols to network; in parallel mode defer the
+                # (expensive) compat testing by adding them non-reactive and
+                # activating them in a batch after this beam (see below)
+                reactive_arg = pass_filter if pool is None else False
                 products_indices = tuple(
-                    network.add_mol(mol.item, None, pass_filter)
+                    network.add_mol(mol.item, None, reactive_arg)
                     for mol in rxn.products
                     if mol.item is not None
                 )
+                if pool is not None and pass_filter:
+                    for mol in rxn.products:
+                        if mol.item is not None:
+                            products_to_activate[mol.item.uid] = mol.item
 
                 # build reaction
                 reactants_indices = tuple(
@@ -1357,6 +1367,11 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                             )
                         if key not in cur_vals or cur_vals[key] != value:
                             network.rxns.set_meta(rxn_index, {key: value})
+
+            if pool is not None and products_to_activate:
+                _parallel.activate_products(
+                    pool, network, products_to_activate, self._num_procs
+                )
 
             recipes_tested.update(
                 (reciperank.recipe for reciperank in recipes_to_be_expanded)

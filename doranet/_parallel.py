@@ -278,3 +278,58 @@ def run_reaction_batch(
         )
         reconstructed.append((rxn, r.pass_filter))
     return reconstructed
+
+
+def _compute_compat(
+    smiles: str,
+) -> tuple[str, list[tuple[interfaces.OpIndex, int]]]:
+    """Return (smiles, [(op_index, arg), ...]) the molecule is compatible with.
+
+    Mirrors the operator/argument iteration order of
+    ``ChemNetworkBasic.add_mol``'s compat loop so the injected entries match the
+    serial computation.
+    """
+    assert _WORKER is not None
+    mol = _WORKER.engine.mol.rdkit(smiles)
+    compat = [
+        (interfaces.OpIndex(i), arg)
+        for i, op in enumerate(_WORKER.ops)
+        for arg in range(len(op))
+        if op.compat(mol, arg)
+    ]
+    return smiles, compat
+
+
+def activate_products(
+    pool: "multiprocessing.pool.Pool",
+    network: interfaces.ChemNetwork,
+    products_by_uid: collections.abc.Mapping[
+        interfaces.Identifier, interfaces.MolDatBase
+    ],
+    num_procs: int,
+) -> None:
+    """Flip newly-produced products to reactive, injecting parallel compat.
+
+    Compatibility testing (``HasSubstructMatch`` against every operator) is the
+    dominant serial cost for large rulesets; it is computed across workers here.
+    Products are processed in uid order (and each compat list is in operator
+    order) so the resulting compat table is independent of worker scheduling.
+    """
+    to_do = [
+        (uid, products_by_uid[uid])
+        for uid in sorted(products_by_uid)
+        if not network.reactivity[network.mols.i(uid)]
+    ]
+    if not to_do:
+        return
+    smiles_list = [str(uid) for uid, _ in to_do]
+    chunksize = max(1, len(smiles_list) // (num_procs * 8))
+    compat_by_uid: dict[str, list[tuple[interfaces.OpIndex, int]]] = {}
+    for smiles, compat in pool.imap_unordered(
+        _compute_compat, smiles_list, chunksize
+    ):
+        compat_by_uid[smiles] = compat
+    for uid, mol in to_do:
+        network.add_mol(
+            mol, reactive=True, _custom_compat=compat_by_uid[str(uid)]
+        )

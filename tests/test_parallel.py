@@ -51,6 +51,24 @@ def test_parallel_reactions_match_serial():
     assert _rxn_uids(serial) == _rxn_uids(parallel)
 
 
+def test_parallel_compat_matches_serial():
+    # Compat testing is parallelized (Phase 1b); the resulting compat table
+    # must match serial (compared as sets of mol uids per operator argument).
+    serial = _expand_alkyne(1)
+    parallel = _expand_alkyne(2)
+
+    def compat_sets(net):
+        out = {}
+        for i in range(len(net.ops)):
+            op_uid = net.ops[interfaces.OpIndex(i)].uid
+            table = net.compat_table(interfaces.OpIndex(i))
+            for arg, col in enumerate(table):
+                out[(op_uid, arg)] = frozenset(net.mols[m].uid for m in col)
+        return out
+
+    assert compat_sets(serial) == compat_sets(parallel)
+
+
 def test_parallel_reproducible_across_core_counts():
     two = _expand_alkyne(2)
     four = _expand_alkyne(4)
