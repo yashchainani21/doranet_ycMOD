@@ -1051,7 +1051,7 @@ class Recipe:
         return other.reactants < self.reactants
 
     def __hash__(self) -> int:
-        return hash(dataclasses.astuple(self))
+        return hash((self.operator, self.reactants))
 
 
 @typing.final

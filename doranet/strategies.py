@@ -804,7 +804,7 @@ class RecipePriorityItem:
         )
 
     def __hash__(self) -> int:
-        return hash(dataclasses.astuple(self))
+        return hash((self.rank, self.recipe))
 
 
 def execute_recipe_ranking(
