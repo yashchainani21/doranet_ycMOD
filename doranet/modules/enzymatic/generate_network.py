@@ -2,6 +2,7 @@
 
 import collections.abc
 import dataclasses
+import functools
 import re
 import time
 import typing
@@ -20,6 +21,7 @@ from doranet import interfaces, metadata
 from doranet.modules.enzymatic import similarity_sampling
 
 
+@functools.lru_cache(maxsize=None)
 def clean_SMILES(smiles):
     mol = Chem.MolFromSmiles(smiles)
     Chem.rdmolops.RemoveStereochemistry(mol)
@@ -69,10 +71,8 @@ AVAILABLE_RULESETS = {
 }
 DEFAULT_RULESET = "JN3604IMT"
 
-bio_rules_path = AVAILABLE_RULESETS[DEFAULT_RULESET]
 cofactors_path = Path(__file__).parent / "all_cofactors.tsv"
 
-bio_rules = pd.read_csv(bio_rules_path, sep="\t")
 cofactors = pd.read_csv(cofactors_path, sep="\t")
 
 excluded_cofactors = ("CARBONYL_CoF", "AMINO_CoF")  # temporary
@@ -346,7 +346,6 @@ class Chem_Rxn_dH_Calculator(metadata.RxnPropertyCalc[float]):
 @typing.final
 @dataclasses.dataclass(frozen=True)
 class Rxn_dH_Filter(metadata.ReactionFilterBase):
-    __slots__ = ("max_dH", "dH_key")
     max_dH: float
     dH_key: collections.abc.Hashable
 
@@ -443,6 +442,7 @@ def generate_network(
     fingerprint_args=None,  # e.g. {"radius": 2} for Morgan
     similarity_method="Tanimoto",  # "Tanimoto" or "Dice"
     sampling_seed=None,  # seed for reproducible sampling
+    num_procs=1,  # number of processes (np); >1 lands in Phase 1
 ):
     if not starters:
         raise Exception("At least one starter is needed to generate a network")
@@ -466,7 +466,7 @@ def generate_network(
     print("Job started on:", datetime.now())
     start_time = time.time()
 
-    engine = dn.create_engine()
+    engine = dn.create_engine(np=num_procs)
     network = engine.new_network()
 
     for key in cofactors_dict:

@@ -240,8 +240,6 @@ class ReactionFilterBase(abc.ABC):
 
 @dataclasses.dataclass(frozen=True)
 class ReactionFilterAnd(ReactionFilterBase):
-    __slots__ = ("_filter1", "_filter2")
-
     _filter1: ReactionFilterBase
     _filter2: ReactionFilterBase
 
@@ -255,7 +253,6 @@ class ReactionFilterAnd(ReactionFilterBase):
 
 @dataclasses.dataclass(frozen=True)
 class ReactionFilterInv(ReactionFilterBase):
-    __slots__ = ("_filter",)
     _filter: ReactionFilterBase
 
     def __call__(self, recipe: interfaces.ReactionExplicit) -> bool:
@@ -268,7 +265,6 @@ class ReactionFilterInv(ReactionFilterBase):
 
 @dataclasses.dataclass(frozen=True)
 class ReactionFilterOr(ReactionFilterBase):
-    __slots__ = ("_filter1", "_filter2")
     _filter1: ReactionFilterBase
     _filter2: ReactionFilterBase
 
@@ -282,7 +278,6 @@ class ReactionFilterOr(ReactionFilterBase):
 
 @dataclasses.dataclass(frozen=True)
 class ReactionFilterXor(ReactionFilterBase):
-    __slots__ = ("_filter1", "_filter2")
     _filter1: ReactionFilterBase
     _filter2: ReactionFilterBase
 
@@ -408,8 +403,6 @@ class MergePropertyCompositor(PropertyCompositor):
 
 @dataclasses.dataclass(frozen=True)
 class FunctionPropertyCompositor(PropertyCompositor):
-    __slots__ = ("_func", "_comp1", "_comp2")
-
     _func: collections.abc.Callable[[typing.Any, typing.Any], typing.Any]
     _comp1: PropertyCompositor
     _comp2: PropertyCompositor
@@ -469,8 +462,6 @@ class FunctionPropertyCompositor(PropertyCompositor):
 
 @dataclasses.dataclass(frozen=True)
 class MolPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
-    __slots__ = ("_calc",)
-
     _calc: MolPropertyCalc[_T]
 
     def __call__(self, rxn: interfaces.ReactionExplicit) -> "MetaPropertyState":
@@ -499,8 +490,6 @@ class MolPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
 
 @dataclasses.dataclass(frozen=True)
 class MolRxnPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
-    __slots__ = ("_calc",)
-
     _calc: MolPropertyFromRxnCalc[_T]
 
     def __call__(self, rxn: interfaces.ReactionExplicit) -> "MetaPropertyState":
@@ -529,8 +518,6 @@ class MolRxnPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
 
 @dataclasses.dataclass(frozen=True)
 class OpPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
-    __slots__ = ("_calc",)
-
     _calc: OpPropertyCalc[_T]
 
     def __call__(self, rxn: interfaces.ReactionExplicit) -> "MetaPropertyState":
@@ -557,8 +544,6 @@ class OpPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
 
 @dataclasses.dataclass(frozen=True)
 class OpRxnPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
-    __slots__ = ("_calc",)
-
     _calc: OpPropertyFromRxnCalc[_T]
 
     def __call__(self, rxn: interfaces.ReactionExplicit) -> "MetaPropertyState":
@@ -585,8 +570,6 @@ class OpRxnPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
 
 @dataclasses.dataclass(frozen=True)
 class RxnPropertyCompositor(PropertyCompositor, typing.Generic[_T]):
-    __slots__ = ("_calc",)
-
     _calc: RxnPropertyCalc[_T]
 
     def __call__(self, rxn: interfaces.ReactionExplicit) -> "MetaPropertyState":
@@ -743,8 +726,6 @@ class RxnAnalysisStep(abc.ABC):
 
 @dataclasses.dataclass(frozen=True)
 class RxnAnalysisStepCompound(RxnAnalysisStep):
-    __slots__ = ("step1", "step2")
-
     step1: RxnAnalysisStep
     step2: RxnAnalysisStep
 
@@ -849,8 +830,6 @@ def metalib_to_rxn_meta(
 
 @dataclasses.dataclass(frozen=True)
 class RxnAnalysisStepProp(RxnAnalysisStep):
-    __slots__ = ("_prop",)
-
     _prop: PropertyCompositor
 
     def execute(
@@ -975,8 +954,6 @@ def _merge_metas(
 @typing.final
 @dataclasses.dataclass(frozen=True)
 class MetaUpdateResolver:
-    __slots__ = ("mol_updates", "op_updates", "rxn_updates")
-
     mol_updates: collections.abc.Mapping[
         collections.abc.Hashable, MetaDataResolverFunc
     ]

@@ -2677,6 +2677,8 @@ class PriorityQueueStrategy(abc.ABC):
     def __init__(
         self,
         network: ChemNetwork,
+        num_procs: typing.Optional[int] = None,
+        engine: typing.Optional["NetworkEngine"] = None,
     ) -> None: ...
 
     @abc.abstractmethod

@@ -1078,18 +1078,17 @@ def execute_reactions(
 
 
 class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
-    __slots__ = ("_network",)
+    __slots__ = ("_network", "_num_procs", "_engine")
 
     def __init__(
         self,
         network: interfaces.ChemNetwork,
         num_procs: typing.Optional[int] = None,
+        engine: typing.Optional[interfaces.NetworkEngine] = None,
     ) -> None:
-        if num_procs is not None:
-            raise NotImplementedError(
-                f"Parallel processing not yet supported on {type(self)}"
-            )
         self._network = network
+        self._num_procs = num_procs if num_procs is not None else 1
+        self._engine = engine
 
     def expand(
         self,
@@ -1114,6 +1113,11 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
         batch_size: typing.Optional[int] = None,
         save_unreactive: bool = True,
     ) -> None:
+        if self._num_procs > 1:
+            raise NotImplementedError(
+                "Parallel expansion is not yet implemented (Phase 1); "
+                "create the engine with np=1 for now"
+            )
         rxn_analysis_task: typing.Optional[metadata.RxnAnalysisStep] = None
         if reaction_plan is not None:
             rxn_analysis_task = metadata.as_rxn_analysis_step(reaction_plan)
@@ -1393,7 +1397,9 @@ class CartesianStrategyUpdated:
         # max_gen: typing.Optional[int] = None,
     ):
         engine = self._engine
-        p_strat = engine.strat.pq(self._network)
+        p_strat = engine.strat.pq(
+            self._network, num_procs=engine.np, engine=engine
+        )
         # mol_filter: typing.Optional[interfaces.MolFilter] = None
         # calc: typing.Optional[metadata.MolPropertyFromRxnCalc] = None
         # resolver: typing.Optional[metadata.MetaUpdateResolver] = None

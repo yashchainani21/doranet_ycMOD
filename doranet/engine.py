@@ -149,10 +149,6 @@ class NetworkEngineBasic(interfaces.NetworkEngine):
 
         self._Op = datatypes.OpDatBasic
         self._speed = speed
-        if np != 1:
-            raise NotImplementedError(
-                "Multiprocessing has not yet been implemented"
-            )
         self._np = np
 
     def Mol(
