@@ -2,7 +2,6 @@
 
 import collections.abc
 import dataclasses
-import math
 import re
 import time
 import typing
@@ -18,6 +17,7 @@ from rdkit.Chem.rdmolops import GetFormalCharge
 
 import doranet as dn
 from doranet import interfaces, metadata
+from doranet.modules.enzymatic import similarity_sampling
 
 
 def clean_SMILES(smiles):
@@ -358,7 +358,7 @@ class Rxn_dH_Filter(metadata.ReactionFilterBase):
         dH = recipe.reaction_meta[self.dH_key]
         if dH == "No_Thermo":
             return True
-        if math.isnan(dH):
+        if dH == float("nan"):
             return False
         return dH < self.max_dH
 
@@ -436,6 +436,13 @@ def generate_network(
     allow_multiple_reactants=False,
     targets=None,  # string or list, set, etc.
     ruleset="JN3604IMT",  # "JN3604IMT" or "JN1224MIN"
+    sample_size=None,  # if set, enable per-generation similarity sampling
+    sample_weight=None,  # callable score->weight; default similarity**4
+    min_similarity=0.0,  # drop products below this max-similarity to targets
+    fingerprint_method="RDKit",  # "RDKit" or "Morgan"
+    fingerprint_args=None,  # e.g. {"radius": 2} for Morgan
+    similarity_method="Tanimoto",  # "Tanimoto" or "Dice"
+    sampling_seed=None,  # seed for reproducible sampling
 ):
     if not starters:
         raise Exception("At least one starter is needed to generate a network")
@@ -462,12 +469,16 @@ def generate_network(
     engine = dn.create_engine()
     network = engine.new_network()
 
-    for key, _keyitem in cofactors_dict.items():
+    for key in cofactors_dict:
         if excluded_cofactors is None or key not in excluded_cofactors:
             # add cofactors to network, they're like helpers in chem expansion
             network.add_mol(
-                engine.mol.rdkit(_keyitem),
-                meta={"SMILES": Chem.MolToSmiles(Chem.MolFromSmiles(_keyitem))},
+                engine.mol.rdkit(cofactors_dict[key]),
+                meta={
+                    "SMILES": Chem.MolToSmiles(
+                        Chem.MolFromSmiles(cofactors_dict[key])
+                    )
+                },
             )
 
     my_start_i = -1
@@ -542,12 +553,47 @@ def generate_network(
     Type_Filter = Reaction_Type_Filter(allow_multiple_reactants)
     ini_number = len(network.mols)
 
+    # Optional per-generation product-similarity sampling. When enabled, a
+    # global hook tags a similarity-weighted sample of each generation's new
+    # products, and a molecule filter restricts subsequent generations to the
+    # tagged molecules (plus the initial molecules, tagged below).
+    sampling_mol_filter: typing.Optional[interfaces.MolFilter] = None
+    sampling_hooks: typing.Optional[Sequence[interfaces.GlobalUpdateHook]] = (
+        None
+    )
+    if sample_size is not None:
+        if not targets:
+            raise Exception("Similarity sampling requires at least one target")
+        for i in range(ini_number):
+            network.mols.set_meta(
+                interfaces.MolIndex(i),
+                {similarity_sampling.DEFAULT_META_KEY: True},
+            )
+        sampling_hooks = [
+            similarity_sampling.ProductSimilaritySampler(
+                target_smiles=[clean_SMILES(s) for s in targets],
+                sample_size=sample_size,
+                weight=sample_weight,
+                min_similarity=min_similarity,
+                fingerprint_method=fingerprint_method,
+                fingerprint_args=fingerprint_args,
+                similarity_method=similarity_method,
+                seed=sampling_seed,
+                high_water=ini_number,
+            )
+        ]
+        sampling_mol_filter = engine.filter.mol.meta_func(
+            similarity_sampling.DEFAULT_META_KEY, lambda v: v is True
+        )
+
     strat.expand(
         num_iter=gen,
         reaction_plan=reaction_plan,
         bundle_filter=coreactants_filter,
         recipe_filter=Type_Filter,
         save_unreactive=False,
+        mol_filter=sampling_mol_filter,
+        global_hooks=sampling_hooks,
     )
 
     if targets is not None:
