@@ -5,6 +5,7 @@ import dataclasses
 import heapq
 import itertools
 import math
+import time
 import typing
 
 from doranet import interfaces, metadata
@@ -1112,6 +1113,7 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
         beam_size: typing.Optional[int] = 1,
         batch_size: typing.Optional[int] = None,
         save_unreactive: bool = True,
+        progress: bool = False,
     ) -> None:
         from doranet import _parallel  # noqa: PLC0415
 
@@ -1172,6 +1174,7 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                 self._num_procs,
             )
 
+        gen_num = 0
         while (max_recipes is None or max_recipes > 0) and (
             any(
                 any(
@@ -1193,9 +1196,28 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                     0 for _ in range(len(compat_indices_table[op_index]))
                 ]
 
+            if progress:
+                gen_num += 1
+                gen_start = time.monotonic()
+                gen_mols0 = len(network.mols)
+                gen_rxns0 = len(network.rxns)
+                n_ops = len(network.ops)
+                op_step = max(round(0.1 * n_ops), 1)
+                print(
+                    f"Generation {gen_num}: ranking recipes across "
+                    f"{n_ops} operators",
+                    flush=True,
+                )
+
             # for each operator, create recipe batches
             cur_min = recipe_heap.min
             for opIndex, _ in enumerate(network.ops):
+                if progress and opIndex % op_step == 0:
+                    print(
+                        f"Generation {gen_num}: ranking recipes — "
+                        f"{round(opIndex / n_ops * 100)}% complete",
+                        flush=True,
+                    )
                 # for each argument, accumulate a total of old_mols and new_mols
                 compat_table = network.compat_table(interfaces.OpIndex(opIndex))
                 compat_indices = compat_indices_table[opIndex]
@@ -1246,6 +1268,15 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                     ]
                 max_recipes = max_recipes - len(recipes_to_be_expanded)
 
+            if progress:
+                n_recipes = len(recipes_to_be_expanded)
+                rxn_step = max(round(0.1 * n_recipes), 1)
+                rxn_done = 0
+                print(
+                    f"Generation {gen_num}: expanding {n_recipes} recipes",
+                    flush=True,
+                )
+
             if pool is not None:
                 assert self._engine is not None
                 rxn_stream: collections.abc.Iterable[
@@ -1272,6 +1303,14 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                 interfaces.Identifier, interfaces.MolDatBase
             ] = {}
             for rxn, pass_filter in rxn_stream:
+                if progress:
+                    rxn_done += 1
+                    if rxn_done % rxn_step == 0:
+                        print(
+                            f"Generation {gen_num}: expanded "
+                            f"{rxn_done} reactions",
+                            flush=True,
+                        )
                 if not save_unreactive and not pass_filter:
                     continue
                 # add product mols to network; in parallel mode defer the
@@ -1383,6 +1422,15 @@ class PriorityQueueStrategyBasic(interfaces.PriorityQueueStrategy):
                     for i in range(len(network.ops))
                 ]
 
+            if progress:
+                print(
+                    f"Generation {gen_num} complete: "
+                    f"+{len(network.mols) - gen_mols0} molecules, "
+                    f"+{len(network.rxns) - gen_rxns0} reactions "
+                    f"({time.monotonic() - gen_start:.1f}s)",
+                    flush=True,
+                )
+
             # run global hooks
             if global_hooks is not None:
                 fake_network = pgnetworks.ChemNetworkFacadeMetaTrigger(
@@ -1439,6 +1487,7 @@ class CartesianStrategyUpdated:
             collections.abc.Sequence[interfaces.GlobalUpdateHook]
         ] = None,
         save_unreactive: bool = True,
+        progress: bool = False,
         # max_gen: typing.Optional[int] = None,
     ):
         engine = self._engine
@@ -1471,4 +1520,5 @@ class CartesianStrategyUpdated:
             recipe_filter=recipe_filter,
             reaction_plan=reaction_plan,
             save_unreactive=save_unreactive,
+            progress=progress,
         )

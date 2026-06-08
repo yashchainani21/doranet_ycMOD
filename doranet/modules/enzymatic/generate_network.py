@@ -443,6 +443,7 @@ def generate_network(
     similarity_method="Tanimoto",  # "Tanimoto" or "Dice"
     sampling_seed=None,  # seed for reproducible sampling
     num_procs=1,  # number of processes (np); >1 lands in Phase 1
+    progress=True,  # print Pickaxe-style per-generation progress
 ):
     if not starters:
         raise Exception("At least one starter is needed to generate a network")
@@ -594,6 +595,7 @@ def generate_network(
         save_unreactive=False,
         mol_filter=sampling_mol_filter,
         global_hooks=sampling_hooks,
+        progress=progress,
     )
 
     if targets is not None:

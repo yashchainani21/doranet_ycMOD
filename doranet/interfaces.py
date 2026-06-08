@@ -2704,6 +2704,7 @@ class PriorityQueueStrategy(abc.ABC):
         beam_size: typing.Optional[int] = 1,
         batch_size: typing.Optional[int] = None,
         save_unreactive: bool = True,
+        progress: bool = False,
     ) -> None:
         """
         Expand the network according to certain parameters.

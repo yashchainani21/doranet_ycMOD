@@ -130,3 +130,20 @@ def test_parallel_metadata_matches_serial():
     parallel = gens(run(2))
     assert serial == parallel
     assert serial == {"C#C": 0, "C=C": 1, "CC": 2}
+
+
+def test_progress_output(capsys):
+    # progress=True emits Pickaxe-style per-generation messages.
+    engine = dn.create_engine()
+    net = _alkyne_network(engine)
+    engine.strat.cartesian(net).expand(num_iter=2, progress=True)
+    out = capsys.readouterr().out
+    assert "Generation 1: ranking recipes" in out
+    assert "% complete" in out
+    assert "Generation 1 complete" in out
+    assert "Generation 2" in out
+
+    # default (progress off) is silent.
+    net2 = _alkyne_network(engine)
+    engine.strat.cartesian(net2).expand(num_iter=2)
+    assert capsys.readouterr().out == ""
